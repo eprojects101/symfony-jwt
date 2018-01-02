@@ -1,0 +1,66 @@
+defaults: &defaults
+  working_directory: /tmp
+  docker:
+    - image: socialbase/docker-image-citools:latest
+      auth:
+        username: $DOCKERHUB_LOGIN
+        password: $DOCKERHUB_PASS
+
+version: 2
+jobs:
+  set_version:
+    <<: *defaults
+    steps:
+      - run:
+          name: Generate semantic version number
+          command: |
+            /increment_version.sh
+      - persist_to_workspace:
+          root: workspace
+          paths:
+            - vars
+  build:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+          at: workspace
+      - checkout:
+          path: /src
+      - setup_remote_docker
+      - run:
+          name: Build and push image
+          command: |
+            set -a
+            . workspace/vars
+            set +a
+            /build_and_push.sh socialbase/vm-backend Dockerfile
+  tag:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+          at: workspace
+      - setup_remote_docker
+      - run:
+          name: Tag repository
+          command: |
+            set -a
+            . workspace/vars
+            /create_tag.sh
+
+workflows:
+  version: 2
+  build_and_push:
+    jobs:
+      - set_version:
+          context: org-global
+      - build:
+          context: org-global
+          requires:
+            - set_version
+      - tag:
+          context: org-global
+          requires:
+            - build
+          filters:
+            branches:
+              only: master
